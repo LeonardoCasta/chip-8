@@ -38,6 +38,11 @@ struct memory {
 	uint16_t stack[16]; //stack
 
     uint8_t keyboard[32][64];
+    /*
+    bit 1 -> is inizialized
+    bit 2 -? clear display
+    */
+    uint8_t info;
 };
 struct memory mem;
 bool isInitialized = false;
@@ -49,6 +54,7 @@ void initialize(FILE *fd){
     mem.SP = 0;
     mem.DT = 0;
     mem.ST = 0;
+    mem.info = 0;
 
     memset(mem.ram, 0, 4096);
 	memset(mem.V, 0, sizeof(uint8_t)*16);
@@ -65,7 +71,26 @@ void initialize(FILE *fd){
 	}
 
 	srand(time(NULL));
-    isInitialized = true;
+    mem.info |= 0x1;
+}
+
+void drawSprite(uint8_t x, uint8_t y, uint8_t n, Cell (*grid)[WIDTH]){
+	printf("%d\n", n);
+	mem.V[0xF] = 0;
+	for(int i = 0; i < n; i++){
+		uint8_t byte = mem.ram[mem.I+i];
+		printf("%02X\n", byte);
+		for(int j = 0; j < 8; j++){
+			uint8_t number = (byte >> 7-j) & 1;
+			int m = (x+j)%64;
+			int z = (y+i)%32; 
+			if(grid[m][z].state == 1 && number == 1)
+				mem.V[0xF] = 1;
+
+			grid[m][z].state = grid[m][z].state ^ number;
+			printf("i:%d j:%d m:%d z:%d v:%d Vf:%d\n",i,j, m, z, number, mem.V[0xF]);
+		}
+	}
 }
 
 void execute(){
@@ -80,7 +105,7 @@ void execute(){
 	switch(mem.opcode & 0xF000){
 		case 0x0000:
 			if((mem.opcode & 0x00FF) == 0x00E0){
-				clearDisplay = 1;
+                mem.info |= 0x2;
 			}else if((mem.opcode & 0x00FF) == 0x00EE){
 				mem.SP--;
 				mem.PC = mem.stack[mem.SP];
