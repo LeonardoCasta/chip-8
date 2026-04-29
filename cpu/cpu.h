@@ -4,7 +4,7 @@
 struct screen {
 	uint8_t screen[32][64];
 };
-void initialize(FILE *fd);
+void initializeCpu(FILE *fd);
 void execute();
 struct screen *getScreen();
 

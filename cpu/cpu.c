@@ -4,7 +4,9 @@
 #include <string.h>
 #include <time.h>
 #include <stdbool.h>
-#include "raylib.h"
+#include "cpu.h"
+#include "../keyboard/keyboard.h"
+
 
 uint8_t font_set[80] = {0xF0, 0x90, 0x90, 0x90, 0xF0,
 						0x20, 0x60, 0x20, 0x20, 0x60, 						
@@ -44,12 +46,11 @@ struct memory {
     bit 1 -> is inizialized
     */
     uint8_t info;
-	uint8_t keyboard[16];
 };
-struct memory mem;
-struct screen *scr;
+static struct memory mem;
+static struct screen *scr;
 
-void initialize(FILE *fd){
+void initializeCpu(FILE *fd){
     mem.opcode = 0;
     mem.I = 0;
     mem.PC = 0x200;
@@ -65,10 +66,7 @@ void initialize(FILE *fd){
 
     //set sprites in memory, al shifted by 0x50
 	for(int i = 0; i < 80; i++){
-		mem.ram[i] = font_set[i];
-	}
-	for(int i = 0; i < 16; i++){
-		mem.keyboard[i] = 0;
+		mem.ram[i+0x50] = font_set[i];
 	}
 
     //load program to memory
@@ -85,40 +83,28 @@ struct screen *getScreen(){
 	return scr;
 }
 
-int getRayKey() {
-	mem.keyboard[0x0] = IsKeyDown(KEY_ZERO);
-	mem.keyboard[0x1] = IsKeyDown(KEY_ONE);
-	mem.keyboard[0x2] = IsKeyDown(KEY_TWO);
-	mem.keyboard[0x3] = IsKeyDown(KEY_THREE);
-	mem.keyboard[0x4] = IsKeyDown(KEY_FOUR);
-	mem.keyboard[0x5] = IsKeyDown(KEY_FIVE);
-	mem.keyboard[0x6] = IsKeyDown(KEY_SIX);
-	mem.keyboard[0x7] = IsKeyDown(KEY_SEVEN);
-	mem.keyboard[0x8] = IsKeyDown(KEY_EIGHT);
-	mem.keyboard[0x9] = IsKeyDown(KEY_NINE);
-	mem.keyboard[0xA] = IsKeyDown(KEY_A);
-	mem.keyboard[0xB] = IsKeyDown(KEY_B);
-	mem.keyboard[0xC] = IsKeyDown(KEY_C);
-	mem.keyboard[0xD] = IsKeyDown(KEY_D);
-	mem.keyboard[0xE] = IsKeyDown(KEY_E);
-	mem.keyboard[0xF] = IsKeyDown(KEY_F);
-}
+
 
 void drawSprite(uint8_t x, uint8_t y, uint8_t n){
-	printf("%d\n", n);
+	//printf("%d\n", n);
+	//printf("I = %03X\n", mem.I);
+	//for (int i = 0; i < n; i++) {
+	//	printf("%02X ", mem.ram[mem.I + i]);
+	//}
+	//printf("\n");
 	mem.V[0xF] = 0;
 	for(int i = 0; i < n; i++){
 		uint8_t byte = mem.ram[mem.I+i];
-		printf("%02X\n", byte);
+		//printf("%02X\n", byte);
 		for(int j = 0; j < 8; j++){
-			uint8_t number = (byte >> 7-j) & 1;
+			uint8_t number = (byte >> (7-j)) & 1;
 			int row = (y+i)%32; 
 			int col = (x+j)%64;
 			if(scr->screen[row][col] == 1 && number == 1)
 				mem.V[0xF] = 1;
 
 			scr->screen[row][col] = scr->screen[row][col] ^ number;
-			printf("i:%d j:%d m:%d z:%d v:%d Vf:%d\n",i,j, row, col, number, mem.V[0xF]);
+			//printf("i:%d j:%d m:%d z:%d v:%d Vf:%d\n",i,j, row, col, number, mem.V[0xF]);
 		}
 	}
 }
@@ -126,14 +112,11 @@ void drawSprite(uint8_t x, uint8_t y, uint8_t n){
 void execute(){
     if(!(mem.info & 0x1)) exit(-1);
 
-	//save key state
-	getRayKey();
-
 	//shift the byte one byte and in the second part i put the second byte
 	// 1111 -> 11110000 | 1010 -> 11111010
-	mem.opcode = mem.ram[mem.PC] << 8 | mem.ram[mem.PC+1];
+	mem.opcode = (mem.ram[mem.PC] << 8) | mem.ram[mem.PC+1];
 	mem.PC += 2; //increment PC to next instruction
-	//printf("%04X\n", mem.opcode);
+	//printf("%02X %02X\n", mem.opcode & 0x00FF, (mem.opcode & 0xFF00) >> 8);
 	//take only the first byte 
 	switch(mem.opcode & 0xF000){
 		case 0x0000:
@@ -258,6 +241,7 @@ void execute(){
 			uint8_t x = (mem.opcode & 0x0F00) >> 8;
 			uint8_t y = (mem.opcode & 0x00F0) >> 4;	
 			uint8_t n = mem.opcode & 0x000F;
+			//printf("%02X %02X\n", mem.opcode & 0x00FF, (mem.opcode & 0xFF00) >> 8);
 			printf("%04X\n", mem.opcode);
 			drawSprite(mem.V[x], mem.V[y], n);
 			//for(int i = 0; i < n; i++){
@@ -267,11 +251,11 @@ void execute(){
 		}
 		case 0xE000:{
 			uint8_t x = (mem.opcode & 0x0F00) >> 8;
-			bool isKeyPressed = mem.keyboard[mem.V[x]]; 
+			bool key = isKeyPressed(mem.V[x]); 
 			if((mem.opcode & 0x00FF) == 0x009E){
-				if(isKeyPressed) mem.PC += 2;	
+				if(key) mem.PC += 2;	
 			}else if((mem.opcode & 0x00FF) == 0x00A1){
-				if(!isKeyPressed) mem.PC += 2;	
+				if(!key) mem.PC += 2;	
 			}
 			break;
 		}
@@ -284,15 +268,15 @@ void execute(){
 					break;
 				case 0x0A: {
 					//waits for a key to be pressed if not it wastes the cycle
-					bool isKeyPressed = 0;
+					bool key = 0;
 					for(int i=0; i<16; i++){
-						if(mem.keyboard[i]){
+						if(isKeyPressed(i)){
 							mem.V[x] = i;
-							isKeyPressed = 1;
+							key = 1;
 							break;
 						}
 					}
-					if(!isKeyPressed) mem.PC -= 2;
+					if(!key) mem.PC -= 2;
 					break;
 				}
 				case 0x15:
@@ -305,7 +289,7 @@ void execute(){
 					mem.I += mem.V[x];
 					break;
 				case 0x29:
-					mem.I = (mem.V[x] * 5);//sprite mem location
+					mem.I = 0x50 + (mem.V[x] * 5);//sprite mem location
 					break;
 				case 0x33: {
 					int val = (int)mem.V[x];
